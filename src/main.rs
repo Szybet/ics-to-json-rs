@@ -9,7 +9,7 @@ use log::*;
 
 use clap::Parser;
 
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
@@ -19,13 +19,24 @@ use serde_json::Result;
 pub struct Args {
     #[arg(short, long, help = "Path to the ics file")]
     path: Option<String>,
-    #[arg(short, long, help = "Path to the output dir (Inkwatchy littlefs filesystem). With / at the end")]
+    #[arg(
+        short,
+        long,
+        help = "Path to the output dir (Inkwatchy littlefs filesystem). With / at the end"
+    )]
     output_dir: String,
+    #[arg(
+        short,
+        long,
+        help = "Limit how many days to actually show",
+        default_value_t = 20
+    )]
+    limit_days: usize,
 }
 
 fn main() {
     env_logger::init_from_env(
-        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "debug"),
     );
     debug!("Start");
 
@@ -58,6 +69,7 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
     }
 
     let mut events: HashMap<String, Vec<Event>> = HashMap::new();
+    let mut days: Vec<u64> = Vec::new();
 
     for i in reader.nth(0).unwrap().unwrap().events {
         debug!("I: {:#?}", i);
@@ -90,7 +102,8 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
         if let Some(map) = events.get_mut(&day) {
             map.push(event);
         } else {
-            events.insert(day, vec![event]);
+            events.insert(day, vec![event.clone()]);
+            days.push(event.start_time);
         }
     }
 
@@ -99,15 +112,41 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
     let json = serde_json::to_string_pretty(&events).unwrap();
     debug!("Json: \n{}", json);
 
-
     info!("There are {} days", events.len());
     for event in events {
         let path = format!("{}{}", args.output_dir, event.0);
         info!("Writing file: {}", path);
         let small_json = serde_json::to_string_pretty(&event).unwrap();
         let mut file = File::create(path).unwrap();
-        file.write_all(small_json.to_ascii_lowercase().as_bytes()).unwrap();
+        file.write_all(small_json.to_ascii_lowercase().as_bytes())
+            .unwrap();
     }
+
+    days.sort();
+    debug!("Days: {:#?}", days);
+
+    let mut index = String::new();
+
+    let mut c = 0;
+    for day in days {
+        let time = DateTime::from_timestamp(day as i64, 0).unwrap();
+        let time_str = &time.format("%d.%m.%Y").to_string();
+        c = c + 1;
+        if c > args.limit_days {
+            let rm_path = format!("{}{}", args.output_dir, time_str);
+            std::fs::remove_file(rm_path).unwrap();
+            continue;
+        }
+        index.push_str(time_str);
+        index.push('\n');
+    }
+    index.pop();
+
+    let path = format!("{}{}", args.output_dir, "index.txt");
+    info!("Writing file: {}", path);
+    let mut file = File::create(path).unwrap();
+    file.write_all(index.to_ascii_lowercase().as_bytes())
+        .unwrap();
 
     info!("Done, bye!");
 }
