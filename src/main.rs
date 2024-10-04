@@ -137,10 +137,9 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
             std::fs::remove_file(rm_path).unwrap();
             continue;
         }
-        index.push_str(time_str);
+        index.push_str(&day.to_string());
         index.push('\n');
     }
-    index.pop();
 
     let path = format!("{}{}", args.output_dir, "index.txt");
     info!("Writing file: {}", path);
