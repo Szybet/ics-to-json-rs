@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::process::exit;
+use std::str::FromStr;
 
 use log::*;
 
-use clap::Parser;
-
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use clap::Parser;
+use deunicode::deunicode;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
@@ -19,6 +20,8 @@ use serde_json::Result;
 pub struct Args {
     #[arg(short, long, help = "Path to the ics file")]
     path: Option<String>,
+    #[arg(short, long, help = "Url to the ics file")]
+    url: Option<String>,
     #[arg(
         short,
         long,
@@ -48,6 +51,12 @@ fn main() {
             .read_to_string(&mut string)
             .unwrap();
         parse_ical(string.as_bytes(), &args.clone());
+    } else if let Some(url) = args.url.clone() {
+        let body = reqwest::blocking::get(url).unwrap().text().unwrap();
+        debug!("body: {}", body);
+        parse_ical(body.as_bytes(), &args.clone());
+    } else {
+        error!("No ICS file provided");
     }
 }
 
@@ -116,10 +125,16 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
     for event in events {
         let path = format!("{}{}", args.output_dir, event.0);
         info!("Writing file: {}", path);
-        let small_json = serde_json::to_string_pretty(&event).unwrap();
+        let small_json = serde_json::to_string_pretty(&event.1).unwrap();
         let mut file = File::create(path).unwrap();
-        file.write_all(small_json.to_ascii_lowercase().as_bytes())
-            .unwrap();
+
+        let mut ascii_str = small_json;
+        ascii_str = deunicode(&ascii_str);
+        //ascii_str = ascii_str.replace("\\n", "\n");
+        ascii_str = ascii_str.replace("    ", "\n");        
+        ascii_str = jsonxf::pretty_print(&ascii_str).unwrap();
+
+        file.write_all(ascii_str.as_bytes()).unwrap();
     }
 
     days.sort();
