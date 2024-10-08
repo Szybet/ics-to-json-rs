@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use log::*;
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use clap::Parser;
 use deunicode::deunicode;
 
@@ -69,6 +69,28 @@ pub struct Event {
     status: String,
 }
 
+pub fn parseTime(str: String) -> NaiveDateTime {
+    debug!("Parsing time: {}", str);
+    if str.len() == 15 {
+        debug!("Time 15");
+        NaiveDateTime::parse_from_str(&str, "%Y%m%dT%H%M%S")
+                    .expect("Failed to parse date")
+    } else if str.len() == 16 {
+        debug!("Time 20");
+        NaiveDateTime::parse_from_str(&str, "%Y%m%dT%H%M%SZ")
+                    .expect("Failed to parse date")
+    }  else if str.len() == 8 {
+        debug!("Time 8");
+        let date = NaiveDate::parse_from_str(&str, "%Y%m%d")
+                    .expect("Failed to parse date");
+        NaiveDateTime::new(date, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()) // Midnight
+    } else {
+        error!("Unknown time format, ehh.");
+        exit(1);
+    }
+    
+}
+
 pub fn parse_ical(buf: &[u8], args: &Args) {
     let mut reader = ical::IcalParser::new(buf);
 
@@ -88,16 +110,14 @@ pub fn parse_ical(buf: &[u8], args: &Args) {
             if p.name == "SUMMARY" {
                 event.name = p.value.unwrap();
             } else if p.name == "DTSTART" {
-                let time = NaiveDateTime::parse_from_str(&p.value.unwrap(), "%Y%m%dT%H%M%S")
-                    .expect("Failed to parse date");
+                let time = parseTime(p.value.unwrap());
 
                 day = time.format("%d.%m.%Y").to_string();
                 let unix = Utc.from_utc_datetime(&time).timestamp() as u64;
                 debug!("Unix time: {}", unix);
                 event.start_time = unix;
             } else if p.name == "DTEND" {
-                let time = NaiveDateTime::parse_from_str(&p.value.unwrap(), "%Y%m%dT%H%M%S")
-                    .expect("Failed to parse date");
+                let time = parseTime(p.value.unwrap());
 
                 let unix = Utc.from_utc_datetime(&time).timestamp() as u64;
                 debug!("Unix time: {}", unix);
